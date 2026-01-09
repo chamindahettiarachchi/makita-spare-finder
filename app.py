@@ -4,7 +4,7 @@ import re
 import io
 from pathlib import Path
 
-# =================== Settings ===================
+# =================== Settings ==================
 BIG_SIZE = 14
 LOW_STOCK_THRESHOLD = 5
 MEDIUM_STOCK_THRESHOLD = 10
