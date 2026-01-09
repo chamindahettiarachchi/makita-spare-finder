@@ -66,7 +66,7 @@ def to_float(val):
         if pd.isna(val):
             return 0.0
         return float(str(val).strip().replace(",", ""))
-    except Exception: 
+    except Exception:
         return 0.0
 
 
@@ -158,6 +158,7 @@ def load_master_to_session() -> bool:
 # =================== Streamlit App ===================
 st.set_page_config(page_title=PAGE_TITLE, layout="wide")
 st.title("Makita Spare Parts Finder")
+
 # ---- Initialise session ----
 if "df" not in st.session_state:
     st.session_state["df"] = None
@@ -174,7 +175,6 @@ st.sidebar.write(
 )
 
 admin_pwd = st.sidebar.text_input("Admin password (optional)", type="password")
-
 is_admin = admin_pwd == ADMIN_PASSWORD
 
 if is_admin:
@@ -227,7 +227,6 @@ df = st.session_state["df"]
 # =========================================================
 tab1, tab2 = st.tabs(["Spare List", "Request List"])
 
-
 # =========================================================
 # TAB 1: Spare List
 # =========================================================
@@ -253,7 +252,7 @@ with tab1:
 - Stock = 0 -> **critical**  
 - Stock < {LOW_STOCK_THRESHOLD} -> **low**  
 - Stock < {MEDIUM_STOCK_THRESHOLD} -> **medium**  
-- Stock >= {MEDIUM_STOCK_THRESHOLD} -> **ok**
+- Stock ≥ {MEDIUM_STOCK_THRESHOLD} -> **ok**
         """
     )
 
@@ -270,7 +269,7 @@ with tab1:
     spare_view = spare_filtered[
         ["model", "material_description", "shrm", "home", "stock", "used_spares", "price"]
     ]
-    st.dataframe(spare_view, use_container_width=True)
+    st.dataframe(spare_view, width="stretch")
 
     if add_button and spare_search.strip():
         q = spare_search.strip()
@@ -290,7 +289,7 @@ with tab1:
             matches_display = hits[
                 ["model", "material_description", "shrm", "home", "stock", "used_spares", "price"]
             ].reset_index(drop=True)
-            st.dataframe(matches_display, use_container_width=True)
+            st.dataframe(matches_display, width="stretch")
 
             idx = st.number_input(
                 "Select row number to add (starting from 0):",
@@ -303,7 +302,6 @@ with tab1:
             if st.button("Confirm Add Selected Match"):
                 add_request_row(hits.iloc[int(idx)])
                 st.success(f"Added: {hits.iloc[int(idx)]['model']}")
-
 
 # =========================================================
 # TAB 2: Request List
@@ -339,7 +337,7 @@ with tab2:
                 "line_total": st.column_config.NumberColumn("Line Total", format="%.2f", disabled=True),
             },
             key="request_editor",
-            use_container_width=True,
+            width="stretch",
         )
 
         edited_df["qty"] = edited_df["qty"].fillna(0).astype(int)
@@ -374,3 +372,4 @@ with tab2:
         if st.button("Clear Request List"):
             st.session_state["request_rows"] = []
             st.experimental_rerun()
+
