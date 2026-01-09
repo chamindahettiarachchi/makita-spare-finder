@@ -27,7 +27,6 @@ CANDIDATES = {
     "price": ["price", "unitprice", "cost", "salesprice"],
 }
 
-
 # =================== Helpers ===================
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(s).strip().lower())
@@ -174,6 +173,9 @@ st.sidebar.write(
     f"Current master file: **{st.session_state.get('uploaded_name') or MASTER_FILE}**"
 )
 
+# Mobile / desktop mode toggle
+mobile_mode = st.sidebar.toggle("Mobile-friendly lists", value=True)
+
 admin_pwd = st.sidebar.text_input("Admin password (optional)", type="password")
 is_admin = admin_pwd == ADMIN_PASSWORD
 
@@ -237,71 +239,113 @@ with tab1:
 
     with col_search1:
         spare_search = st.text_input(
-            "Search Model or Description (this filters the table below):",
+            "Search Model or Description (this filters below):",
             "",
             key="spare_search",
+            placeholder="Start typing to filter by model or description",
         )
 
     with col_search2:
         st.write("")
-        add_button = st.button("Add from Search")
+        add_button = st.button("Add to List" if mobile_mode else "Add from Search")
 
     st.caption("Stock level info:")
     st.markdown(
         f"""
-- Stock = 0 -> **critical**  
-- Stock < {LOW_STOCK_THRESHOLD} -> **low**  
-- Stock < {MEDIUM_STOCK_THRESHOLD} -> **medium**  
-- Stock ≥ {MEDIUM_STOCK_THRESHOLD} -> **ok**
+- Stock = 0 → **critical**  
+- Stock < {LOW_STOCK_THRESHOLD} → **low**  
+- Stock < {MEDIUM_STOCK_THRESHOLD} → **medium**  
+- Stock ≥ {MEDIUM_STOCK_THRESHOLD} → **ok**
         """
     )
 
-    if spare_search.strip():
-        q = spare_search.strip().lower()
-        mask = (
-            df["model"].str.contains(re.escape(q), case=False, na=False)
-            | df["material_description"].str.contains(re.escape(q), case=False, na=False)
-        )
-        spare_filtered = df[mask].copy()
+    query = spare_search.strip()
+
+    # No query yet
+    if not query:
+        if mobile_mode:
+            st.info("Start typing to see matching spare parts.")
+        else:
+            # Desktop: show full table
+            spare_view_all = df[
+                ["model", "material_description", "shrm", "home", "stock", "used_spares", "price"]
+            ]
+            st.dataframe(spare_view_all, width="stretch")
+
     else:
-        spare_filtered = df.copy()
-
-    spare_view = spare_filtered[
-        ["model", "material_description", "shrm", "home", "stock", "used_spares", "price"]
-    ]
-    st.dataframe(spare_view, width="stretch")
-
-    if add_button and spare_search.strip():
-        q = spare_search.strip()
-        hits = df[
-            df["model"].str.match(fr"^{re.escape(q)}", case=False, na=False)
-            | df["material_description"].str.contains(re.escape(q), case=False, na=False)
-        ]
+        # Filter matches
+        mask = (
+            df["model"].str.contains(re.escape(query), case=False, na=False)
+            | df["material_description"].str.contains(re.escape(query), case=False, na=False)
+        )
+        hits = df[mask].copy()
 
         if hits.empty:
-            st.error(f"Part not found: {q}")
-        elif len(hits) == 1:
-            add_request_row(hits.iloc[0])
-            st.success(f"Added: {hits.iloc[0]['model']}")
+            st.error(f"No parts found for: {query}")
         else:
-            st.warning(f"Found {len(hits)} matches. Please choose one:")
+            if mobile_mode:
+                # Show a dropdown of matching parts
+                hits_reset = hits.reset_index(drop=True)
+                options_labels = [
+                    f"{row['model']} — {row['material_description'][:60]} (Stock: {row['stock']})"
+                    for _, row in hits_reset.iterrows()
+                ]
 
-            matches_display = hits[
-                ["model", "material_description", "shrm", "home", "stock", "used_spares", "price"]
-            ].reset_index(drop=True)
-            st.dataframe(matches_display, width="stretch")
+                selected_index = st.selectbox(
+                    "Matching spare parts:",
+                    options=range(len(hits_reset)),
+                    format_func=lambda i: options_labels[i],
+                    key="mobile_match_select",
+                )
 
-            idx = st.number_input(
-                "Select row number to add (starting from 0):",
-                min_value=0,
-                max_value=len(matches_display) - 1,
-                step=1,
-                value=0,
-                key="match_index",
-            )
-            if st.button("Confirm Add Selected Match"):
-                add_request_row(hits.iloc[int(idx)])
-                st.success(f"Added: {hits.iloc[int(idx)]['model']}")
+                # Show small preview card
+                sel_row = hits_reset.iloc[selected_index]
+                st.markdown(
+                    f"""
+**Selected:**
+
+- Model: `{sel_row['model']}`
+- Description: {sel_row['material_description']}
+- Showroom: {sel_row['shrm']}  |  Home: {sel_row['home']}
+- Stock: {sel_row['stock']}  |  Used spares: {sel_row['used_spares']}
+- Price: {sel_row['price']:.2f}
+                    """
+                )
+
+                if add_button:
+                    add_request_row(sel_row)
+                    st.success(f"Added: {sel_row['model']}")
+
+            else:
+                # Desktop behaviour: show filtered table
+                spare_view = hits[
+                    ["model", "material_description", "shrm", "home", "stock", "used_spares", "price"]
+                ]
+                st.dataframe(spare_view, width="stretch")
+
+                if add_button:
+                    if len(hits) == 1:
+                        add_request_row(hits.iloc[0])
+                        st.success(f"Added: {hits.iloc[0]['model']}")
+                    else:
+                        # Ask user to choose by index
+                        st.warning(f"Found {len(hits)} matches. Please choose one by row number:")
+                        matches_display = hits[
+                            ["model", "material_description", "shrm", "home", "stock", "used_spares", "price"]
+                        ].reset_index(drop=True)
+                        st.dataframe(matches_display, width="stretch")
+
+                        idx = st.number_input(
+                            "Select row number to add (starting from 0):",
+                            min_value=0,
+                            max_value=len(matches_display) - 1,
+                            step=1,
+                            value=0,
+                            key="desktop_match_index",
+                        )
+                        if st.button("Confirm Add Selected Match", key="desktop_confirm_add"):
+                            add_request_row(hits.iloc[int(idx)])
+                            st.success(f"Added: {hits.iloc[int(idx)]['model']}")
 
 # =========================================================
 # TAB 2: Request List
@@ -372,4 +416,3 @@ with tab2:
         if st.button("Clear Request List"):
             st.session_state["request_rows"] = []
             st.experimental_rerun()
-
