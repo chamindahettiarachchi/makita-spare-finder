@@ -27,6 +27,7 @@ CANDIDATES = {
     "price": ["price", "unitprice", "cost", "salesprice"],
 }
 
+
 # =================== Helpers ===================
 def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(s).strip().lower())
@@ -65,7 +66,7 @@ def to_float(val):
         if pd.isna(val):
             return 0.0
         return float(str(val).strip().replace(",", ""))
-    except Exception:
+    except Exception: 
         return 0.0
 
 
@@ -157,7 +158,6 @@ def load_master_to_session() -> bool:
 # =================== Streamlit App ===================
 st.set_page_config(page_title=PAGE_TITLE, layout="wide")
 st.title("Makita Spare Parts Finder")
-
 # ---- Initialise session ----
 if "df" not in st.session_state:
     st.session_state["df"] = None
@@ -172,9 +172,6 @@ st.sidebar.header("Stock File (internal)")
 st.sidebar.write(
     f"Current master file: **{st.session_state.get('uploaded_name') or MASTER_FILE}**"
 )
-
-# Mobile-friendly toggle (doesn't change behaviour yet, only UI option)
-mobile_mode = st.sidebar.toggle("Mobile-friendly lists", value=True)
 
 admin_pwd = st.sidebar.text_input("Admin password (optional)", type="password")
 
@@ -230,6 +227,7 @@ df = st.session_state["df"]
 # =========================================================
 tab1, tab2 = st.tabs(["Spare List", "Request List"])
 
+
 # =========================================================
 # TAB 1: Spare List
 # =========================================================
@@ -272,7 +270,7 @@ with tab1:
     spare_view = spare_filtered[
         ["model", "material_description", "shrm", "home", "stock", "used_spares", "price"]
     ]
-    st.dataframe(spare_view, width="stretch")
+    st.dataframe(spare_view, use_container_width=True)
 
     if add_button and spare_search.strip():
         q = spare_search.strip()
@@ -292,7 +290,7 @@ with tab1:
             matches_display = hits[
                 ["model", "material_description", "shrm", "home", "stock", "used_spares", "price"]
             ].reset_index(drop=True)
-            st.dataframe(matches_display, width="stretch")
+            st.dataframe(matches_display, use_container_width=True)
 
             idx = st.number_input(
                 "Select row number to add (starting from 0):",
@@ -305,6 +303,7 @@ with tab1:
             if st.button("Confirm Add Selected Match"):
                 add_request_row(hits.iloc[int(idx)])
                 st.success(f"Added: {hits.iloc[int(idx)]['model']}")
+
 
 # =========================================================
 # TAB 2: Request List
@@ -340,7 +339,7 @@ with tab2:
                 "line_total": st.column_config.NumberColumn("Line Total", format="%.2f", disabled=True),
             },
             key="request_editor",
-            width="stretch",
+            use_container_width=True,
         )
 
         edited_df["qty"] = edited_df["qty"].fillna(0).astype(int)
