@@ -1,10 +1,8 @@
-﻿import streamlit as st
+import streamlit as st
 import pandas as pd
 import re
 import io
-import html
 from pathlib import Path
-from streamlit_searchbox import st_searchbox
 
 # =================== Settings ===================
 BIG_SIZE = 14
@@ -68,7 +66,7 @@ def to_float(val):
         if pd.isna(val):
             return 0.0
         return float(str(val).strip().replace(",", ""))
-    except Exception:
+    except Exception: 
         return 0.0
 
 
@@ -83,15 +81,16 @@ def build_app_df(raw_df: pd.DataFrame, colmap: dict) -> pd.DataFrame:
 
     model = col_series("model", "")
     desc = col_series("material_description", "")
-    shrm = col_series("shrm", "")
-    home = col_series("home", "")
-    shrm = shrm.fillna("N-A")
-    home = home.fillna("N-A")
+    shrm = col_series("shrm", 0)
+    home = col_series("home", 0)
+
+    shrm_int = shrm.apply(to_int)
+    home_int = home.apply(to_int)
 
     if "stock" in colmap:
         stock = col_series("stock", 0).apply(to_int)
     else:
-        stock = pd.Series([0] * n)
+        stock = shrm_int + home_int
 
     if "used_spares" in colmap:
         used = col_series("used_spares", 0).apply(to_int)
@@ -104,8 +103,8 @@ def build_app_df(raw_df: pd.DataFrame, colmap: dict) -> pd.DataFrame:
         {
             "model": model.astype(str),
             "material_description": desc.astype(str),
-            "shrm": shrm.astype(str).replace("nan", "N-A"),
-            "home": home.astype(str).replace("nan", "N-A"),
+            "shrm": shrm_int,
+            "home": home_int,
             "stock": stock,
             "used_spares": used,
             "price": price,
@@ -124,44 +123,14 @@ def add_request_row(row: pd.Series):
         {
             "model": row["model"],
             "material_description": row["material_description"],
-            "shrm": str(row["shrm"]),
-            "home": str(row["home"]),
+            "shrm": int(row["shrm"]),
+            "home": int(row["home"]),
             "stock": int(row["stock"]),
             "used_spares": int(row["used_spares"]),
             "price": float(row["price"]),
             "qty": 1,
         }
     )
-
-
-def _fmt_price(val: float) -> str:
-    try:
-        return f"{float(val):,.2f}"
-    except Exception:
-        return "0.00"
-
-
-def render_spare_cards(spare_df: pd.DataFrame) -> None:
-    for _, row in spare_df.iterrows():
-        model = html.escape(str(row["model"]))
-        desc = html.escape(str(row["material_description"]))
-        shrm = html.escape(str(row["shrm"]))
-        home = html.escape(str(row["home"]))
-        st.markdown(
-            f"""
-<div class="spare-card">
-  <div class="spare-main"><strong>{model}</strong> - {desc}</div>
-  <div class="spare-meta">
-    <span>Showroom: {shrm}</span>
-    <span>Home: {home}</span>
-    <span>Stock: {int(row["stock"])}</span>
-    <span>Used: {int(row["used_spares"])}</span>
-    <span>Price: {_fmt_price(row["price"])}</span>
-  </div>
-</div>
-            """,
-            unsafe_allow_html=True,
-        )
 
 
 def load_master_to_session() -> bool:
@@ -188,41 +157,7 @@ def load_master_to_session() -> bool:
 
 # =================== Streamlit App ===================
 st.set_page_config(page_title=PAGE_TITLE, layout="wide")
-st.markdown(
-    "<h1 style='color:#006400; margin-bottom:0;'>Makita Spare Parts Finder</h1>",
-    unsafe_allow_html=True,
-)
-st.markdown(
-    """
-<style>
-  @media (max-width: 768px) {
-    .block-container { padding-left: 1rem; padding-right: 1rem; }
-    .block-container h1 { font-size: 1.6rem; }
-    div[data-testid="column"] { width: 100% !important; flex: 1 1 100% !important; }
-    button, .stButton > button { width: 100%; }
-    .stDataFrame, .stTable { font-size: 0.85rem; }
-  }
-  .spare-card {
-    border: 1px solid #d0d0d0;
-    border-radius: 8px;
-    padding: 10px 12px;
-    margin: 8px 0;
-    background: #ffffff;
-  }
-  .spare-main { font-size: 0.95rem; margin-bottom: 6px; }
-  .spare-meta span {
-    display: inline-block;
-    margin-right: 12px;
-    font-size: 0.85rem;
-    color: #333333;
-  }
-  @media (max-width: 768px) {
-    .spare-meta span { display: block; margin-right: 0; }
-  }
-  </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.title("Makita Spare Parts Finder")
 # ---- Initialise session ----
 if "df" not in st.session_state:
     st.session_state["df"] = None
@@ -237,8 +172,6 @@ st.sidebar.header("Stock File (internal)")
 st.sidebar.write(
     f"Current master file: **{st.session_state.get('uploaded_name') or MASTER_FILE}**"
 )
-
-mobile_view = st.sidebar.toggle("Mobile-friendly lists", value=True)
 
 admin_pwd = st.sidebar.text_input("Admin password (optional)", type="password")
 
@@ -272,6 +205,7 @@ else:
     if admin_pwd:
         st.sidebar.error("Wrong admin password.")
 
+st.sidebar.caption("Normal users can ignore the password field.")
 
 # ---- Load master file if needed ----
 if st.session_state["df"] is None:
@@ -300,83 +234,53 @@ tab1, tab2 = st.tabs(["Spare List", "Request List"])
 with tab1:
     st.subheader("Spare List (from master file)")
 
-    st.markdown("Search Model or Description (this filters the table below):")
-    all_suggestions = (
-        df["model"].astype(str).fillna("")
-        + " - "
-        + df["material_description"].astype(str).fillna("")
-    ).tolist()
     col_search1, col_search2 = st.columns([3, 1])
 
     with col_search1:
-        def search_spares(searchterm: str):
-            if not searchterm:
-                return []
-            term = searchterm.strip().lower()
-            return [s for s in all_suggestions if term in s.lower()][:20]
-
-        search_value = st_searchbox(
-            search_spares,
-            placeholder="Start typing to filter by model or description",
-            default_use_searchterm=True,
-            key="spare_searchbox",
+        spare_search = st.text_input(
+            "Search Model or Description (this filters the table below):",
+            "",
+            key="spare_search",
         )
-        search_value = str(search_value or "").strip()
 
     with col_search2:
-        add_button = st.button("Add to List", use_container_width=True)
+        st.write("")
+        add_button = st.button("Add from Search")
 
-    available_row = None
-    if search_value:
-        q = search_value
-        if " - " in q:
-            q_model, q_desc = q.split(" - ", 1)
-            mask = (
-                df["model"].str.contains(re.escape(q_model), case=False, na=False)
-                & df["material_description"].str.contains(
-                    re.escape(q_desc), case=False, na=False
-                )
-            )
-        else:
-            mask = (
-                df["model"].str.contains(re.escape(q), case=False, na=False)
-                | df["material_description"].str.contains(re.escape(q), case=False, na=False)
-            )
+    st.caption("Stock level info:")
+    st.markdown(
+        f"""
+- Stock = 0 -> **critical**  
+- Stock < {LOW_STOCK_THRESHOLD} -> **low**  
+- Stock < {MEDIUM_STOCK_THRESHOLD} -> **medium**  
+- Stock >= {MEDIUM_STOCK_THRESHOLD} -> **ok**
+        """
+    )
+
+    if spare_search.strip():
+        q = spare_search.strip().lower()
+        mask = (
+            df["model"].str.contains(re.escape(q), case=False, na=False)
+            | df["material_description"].str.contains(re.escape(q), case=False, na=False)
+        )
         spare_filtered = df[mask].copy()
-        if len(spare_filtered) == 1:
-            available_row = spare_filtered.iloc[0]
-
-        spare_view = spare_filtered[
-            ["model", "material_description", "shrm", "home", "stock", "used_spares", "price"]
-        ]
-        st.caption(f"Matches: {len(spare_view)}")
-        if mobile_view:
-            render_spare_cards(spare_view)
-        else:
-            st.dataframe(spare_view, use_container_width=True)
     else:
-        st.info("Start typing to see matching spare parts.")
+        spare_filtered = df.copy()
 
-    if add_button and search_value:
-        q = search_value
-        if " - " in q:
-            q_model, q_desc = q.split(" - ", 1)
-            hits = df[
-                df["model"].str.contains(re.escape(q_model), case=False, na=False)
-                & df["material_description"].str.contains(
-                    re.escape(q_desc), case=False, na=False
-                )
-            ]
-            q_display = f"{q_model} - {q_desc}"
-        else:
-            hits = df[
-                df["model"].str.match(fr"^{re.escape(q)}", case=False, na=False)
-                | df["material_description"].str.contains(re.escape(q), case=False, na=False)
-            ]
-            q_display = q
+    spare_view = spare_filtered[
+        ["model", "material_description", "shrm", "home", "stock", "used_spares", "price"]
+    ]
+    st.dataframe(spare_view, use_container_width=True)
+
+    if add_button and spare_search.strip():
+        q = spare_search.strip()
+        hits = df[
+            df["model"].str.match(fr"^{re.escape(q)}", case=False, na=False)
+            | df["material_description"].str.contains(re.escape(q), case=False, na=False)
+        ]
 
         if hits.empty:
-            st.error(f"Part not found: {q_display}")
+            st.error(f"Part not found: {q}")
         elif len(hits) == 1:
             add_request_row(hits.iloc[0])
             st.success(f"Added: {hits.iloc[0]['model']}")
@@ -400,15 +304,6 @@ with tab1:
                 add_request_row(hits.iloc[int(idx)])
                 st.success(f"Added: {hits.iloc[int(idx)]['model']}")
 
-    if available_row is not None:
-        available_qty = int(available_row["stock"]) - int(available_row["used_spares"])
-        st.markdown(
-            f"<div style='margin-top:12px; color:#0066cc; font-weight:600;'>"
-            f"Available Quantity: {available_qty}"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
 
 # =========================================================
 # TAB 2: Request List
@@ -427,82 +322,34 @@ with tab2:
 
         req_df["line_total"] = req_df["price"] * req_df["qty"]
 
-        if mobile_view:
-            updated_rows = []
-            for idx, row in req_df.iterrows():
-                model = html.escape(str(row["model"]))
-                desc = html.escape(str(row["material_description"]))
-                shrm = html.escape(str(row["shrm"]))
-                home = html.escape(str(row["home"]))
-                st.markdown(
-                    f"""
-<div class="spare-card">
-  <div class="spare-main"><strong>{model}</strong> - {desc}</div>
-  <div class="spare-meta">
-    <span>Showroom: {shrm}</span>
-    <span>Home: {home}</span>
-    <span>Stock: {int(row["stock"])}</span>
-    <span>Used: {int(row["used_spares"])}</span>
-    <span>Price: {_fmt_price(row["price"])}</span>
-  </div>
-</div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+        st.write("You can edit the Qty column. Line Total and totals update automatically.")
+        edited_df = st.data_editor(
+            req_df,
+            hide_index=True,
+            num_rows="dynamic",
+            column_config={
+                "model": st.column_config.TextColumn("Model", disabled=True),
+                "material_description": st.column_config.TextColumn("Description", disabled=True),
+                "shrm": st.column_config.NumberColumn("Showroom", disabled=True),
+                "home": st.column_config.NumberColumn("Home", disabled=True),
+                "stock": st.column_config.NumberColumn("Stock", disabled=True),
+                "used_spares": st.column_config.NumberColumn("Used Spares", disabled=True),
+                "price": st.column_config.NumberColumn("Price", format="%.2f", disabled=True),
+                "qty": st.column_config.NumberColumn("Qty", min_value=0, step=1),
+                "line_total": st.column_config.NumberColumn("Line Total", format="%.2f", disabled=True),
+            },
+            key="request_editor",
+            use_container_width=True,
+        )
 
-                qty = st.number_input(
-                    "Qty",
-                    min_value=0,
-                    step=1,
-                    value=int(row["qty"]),
-                    key=f"qty_{idx}",
-                )
-                line_total = float(row["price"]) * int(qty)
-                st.markdown(f"Line Total: **{_fmt_price(line_total)}**")
+        edited_df["qty"] = edited_df["qty"].fillna(0).astype(int)
+        edited_df["line_total"] = edited_df["price"] * edited_df["qty"]
 
-                updated = row.drop(labels=["line_total"]).to_dict()
-                updated["qty"] = int(qty)
-                updated_rows.append(updated)
+        st.session_state["request_rows"] = edited_df.drop(columns=["line_total"]).to_dict("records")
 
-            st.session_state["request_rows"] = updated_rows
-            total_items = len(updated_rows)
-            total_qty = sum(r["qty"] for r in updated_rows)
-            total_amount = sum(float(r["price"]) * int(r["qty"]) for r in updated_rows)
-        else:
-            st.write("You can edit the Qty column. Line Total and totals update automatically.")
-            edited_df = st.data_editor(
-                req_df,
-                hide_index=True,
-                num_rows="dynamic",
-                column_config={
-                    "model": st.column_config.TextColumn("Model", disabled=True),
-                    "material_description": st.column_config.TextColumn("Description", disabled=True),
-                "shrm": st.column_config.TextColumn("Showroom", disabled=True),
-                "home": st.column_config.TextColumn("Home", disabled=True),
-                    "stock": st.column_config.NumberColumn("Stock", disabled=True),
-                    "used_spares": st.column_config.NumberColumn("Used Spares", disabled=True),
-                    "price": st.column_config.NumberColumn("Price", format="%.2f", disabled=True),
-                    "qty": st.column_config.NumberColumn("Qty", min_value=0, step=1),
-                    "line_total": st.column_config.NumberColumn("Line Total", format="%.2f", disabled=True),
-                },
-                key="request_editor",
-                use_container_width=True,
-            )
-
-            edited_df["qty"] = edited_df["qty"].fillna(0).astype(int)
-            edited_df["line_total"] = edited_df["price"] * edited_df["qty"]
-
-            new_rows = edited_df.drop(columns=["line_total"]).to_dict("records")
-            if new_rows != req_rows:
-                st.session_state["request_rows"] = new_rows
-                if hasattr(st, "rerun"):
-                    st.rerun()
-                else:
-                    st.experimental_rerun()
-
-            total_items = len(edited_df)
-            total_qty = int(edited_df["qty"].sum())
-            total_amount = float(edited_df["line_total"].sum())
+        total_items = len(edited_df)
+        total_qty = int(edited_df["qty"].sum())
+        total_amount = float(edited_df["line_total"].sum())
 
         col_t1, col_t2, col_t3 = st.columns(3)
         col_t1.metric("Items", total_items)
@@ -512,11 +359,7 @@ with tab2:
         st.markdown("---")
 
         buffer = io.BytesIO()
-        if mobile_view:
-            out_df = pd.DataFrame(updated_rows)
-            out_df["line_total"] = out_df["price"] * out_df["qty"]
-        else:
-            out_df = edited_df.copy()
+        out_df = edited_df.copy()
         with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
             out_df.to_excel(writer, index=False, sheet_name="Requests")
         buffer.seek(0)
@@ -530,7 +373,4 @@ with tab2:
 
         if st.button("Clear Request List"):
             st.session_state["request_rows"] = []
-            if hasattr(st, "rerun"):
-                st.rerun()
-            else:
-                st.experimental_rerun()
+            st.experimental_rerun()
